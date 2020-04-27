@@ -69,6 +69,14 @@ class Multisite_Multidomain_Single_Sign_On {
       wp_die('Single Sign On requires that you be logged in. Please <a href="' . esc_url(wp_login_url()) . '">log in</a>, then try again.');
     }
     $return_url = esc_url_raw($_GET['msso-auth-return-to']);
+
+    // Prevent phishing attacks, make sure that the return-to site that gets the auth is a domain on this network.
+    $url_parts = explode('/', $return_url);
+    $requesting_site_id = get_blog_id_from_url($url_parts[2]);
+    if(empty($requesting_site_id)) {
+      wp_die('Single Sign On failed. The requested site could not be found on this network. If someone gave you think link, they may have sent you a phishing attack.');
+    }
+
     $current_user = wp_get_current_user();
     $expires = strtotime('+2 minutes');
     $hash = md5(intval($current_user->ID) . '||' . intval($expires));
@@ -90,7 +98,11 @@ class Multisite_Multidomain_Single_Sign_On {
     foreach($keys as $key) {
       if(empty($_GET[$key])) return;
     }
-    if(is_user_logged_in()) return;
+    $final_destination = remove_query_arg($keys);
+    if(is_user_logged_in()) {
+      wp_redirect($final_destination);
+      exit();
+    }
 
     $user_id = intval($_GET['msso-user-id']); // phpcs:ignore:WordPress.Security.ValidatedSanitizedInput.InputNotValidated
     $expires = intval($_GET['msso-expires']); // phpcs:ignore:WordPress.Security.ValidatedSanitizedInput.InputNotValidated
@@ -109,7 +121,6 @@ class Multisite_Multidomain_Single_Sign_On {
     wp_set_auth_cookie($user_id, true);
 
     // Just so that we don't leave the user on a URL with a bunch of our parameters.
-    $final_destination = remove_query_arg($keys);
     wp_redirect($final_destination);
     exit();
   }
