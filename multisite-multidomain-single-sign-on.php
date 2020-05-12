@@ -82,7 +82,10 @@ class Multisite_Multidomain_Single_Sign_On {
 
     $current_user = wp_get_current_user();
     $expires = strtotime('+2 minutes');
-    $hash = md5(intval($current_user->ID) . '||' . intval($expires));
+    $hash = $this->hash(intval($current_user->ID) . '||' . intval($expires));
+    if(empty($hash)) {
+      wp_die('Single Sign On failed. The network needs a secure salt.');
+    }
 
     $next_url = add_query_arg([
         'msso-auth' => $hash,
@@ -114,7 +117,11 @@ class Multisite_Multidomain_Single_Sign_On {
     if($expires < time()) {
       wp_die('Your Single Sing On link has expired. Please return to the dashboard and try again.');
     }
-    if(md5($user_id . '||' . $expires) !== $received_hash) {
+    $expected_hash = $this->hash($user_id . '||' . $expires);
+    if(empty($expected_hash)) {
+      wp_die('Single Sign On failed. The network needs a secure salt.');
+    }
+    if(!hash_equals($expected_hash, $received_hash)) {
       wp_die('Single Sign On has found an error in the URL that you are trying to use.');
     }
     if(!user_can($user_id, 'read')) {
@@ -126,6 +133,19 @@ class Multisite_Multidomain_Single_Sign_On {
     // Just so that we don't leave the user on a URL with a bunch of our parameters.
     wp_redirect($final_destination);
     exit();
+  }
+
+  /**
+   * Create a secure hash that can only be recreated from this Wordpress install's secret salt.
+   * @param string $thing
+   * @return false|string
+   */
+  protected function hash($thing) {
+    $algo = function_exists( 'hash' )
+        ? 'sha256'
+        : 'sha1';
+    if(!defined( 'AUTH_SALT' ) || empty(AUTH_SALT)) return false;
+    return hash_hmac( $algo, $thing, AUTH_SALT);
   }
 
 }
