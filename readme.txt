@@ -3,9 +3,9 @@ Contributors: emfluencekc, mightyturtle
 Author URI: https://emfluence.com
 Tags: multisite, domain, single sign on
 Requires at least: 5.0
-Tested up to: 5.4
+Tested up to: 5.4.1
 Requires PHP: 7.0
-Stable tag: 1.0
+Stable tag: 1.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 

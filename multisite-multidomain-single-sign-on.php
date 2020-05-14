@@ -2,9 +2,9 @@
 /*
 Plugin Name: Multisite Multidomain Single Sign On
 Description: Automatically sign the user in to separate-domain sites of the same multisite installation, when switching sites using the My Sites links in the admin menu. Note that the user already has to be logged into a site in the network, this plugin just cuts down on having to log in again due to cookie isolation between domains. Note: This plugin must be installed on all sites in a network in order to work.
-Version: 1.0
+Version: 1.1
 Requires at least: 5.0
-Tested up to: 5.4
+Tested up to: 5.4.1
 Requires PHP: 7.0
 Author: emfluence Digital Marketing
 Author URI: https://emfluence.com
