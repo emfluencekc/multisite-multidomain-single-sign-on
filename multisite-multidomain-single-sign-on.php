@@ -2,7 +2,7 @@
 /*
 Plugin Name: Multisite Multidomain Single Sign On
 Description: Automatically sign the user in to separate-domain sites of the same multisite installation, when switching sites using the My Sites links in the admin menu. Note that the user already has to be logged into a site in the network, this plugin just cuts down on having to log in again due to cookie isolation between domains. Note: This plugin must be installed on all sites in a network in order to work.
-Version: 1.1
+Version: 1.2
 Requires at least: 5.0
 Tested up to: 5.4.1
 Requires PHP: 7.0
@@ -82,7 +82,17 @@ class Multisite_Multidomain_Single_Sign_On {
 
     $current_user = wp_get_current_user();
     $expires = strtotime('+2 minutes');
-    $hash = $this->hash(intval($current_user->ID) . '||' . intval($expires));
+
+    /*
+     * The user's password hash is a user-specific, expirable, private piece of information
+     * that prevents brute force hacking of the salt if an attacker has the query parameters.
+     */
+    $user_pass_hash = $this->get_user_password_hash($current_user->ID);
+    if(empty($user_pass_hash)) {
+      wp_die('Single Sign On failed. Your password hash was empty. Try changing your Wordpress password.');
+    }
+
+    $hash = $this->hash(implode('||', [intval($current_user->ID), intval($expires), $user_pass_hash]));
     if(empty($hash)) {
       wp_die('Single Sign On failed. The network needs a secure salt.');
     }
@@ -115,9 +125,10 @@ class Multisite_Multidomain_Single_Sign_On {
     $received_hash = $_GET['msso-auth']; // phpcs:ignore:WordPress.Security.ValidatedSanitizedInput.InputNotValidated
 
     if($expires < time()) {
-      wp_die('Your Single Sing On link has expired. Please return to the dashboard and try again.');
+      wp_die('Your Single Sign On link has expired. Please return to the dashboard and try again.');
     }
-    $expected_hash = $this->hash($user_id . '||' . $expires);
+    $user_pass_hash = $this->get_user_password_hash($user_id);
+    $expected_hash = $this->hash(implode('||', [intval($user_id), intval($expires), $user_pass_hash]));
     if(empty($expected_hash)) {
       wp_die('Single Sign On failed. The network needs a secure salt.');
     }
@@ -133,6 +144,15 @@ class Multisite_Multidomain_Single_Sign_On {
     // Just so that we don't leave the user on a URL with a bunch of our parameters.
     wp_redirect($final_destination);
     exit();
+  }
+
+  /**
+   * @param int $uid
+   * @return string|null
+   */
+  protected function get_user_password_hash($uid) {
+    global $wpdb;
+    return $wpdb->get_var($wpdb->prepare("SELECT user_pass FROM {$wpdb->users} WHERE ID = %d", $uid)); // phpcs:ignore WordPressVIPMinimum.Variables.RestrictedVariables.user_meta__wpdb__users
   }
 
   /**
