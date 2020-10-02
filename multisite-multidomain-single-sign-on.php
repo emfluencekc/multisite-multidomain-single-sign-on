@@ -2,9 +2,9 @@
 /*
 Plugin Name: Multisite Multidomain Single Sign On
 Description: Automatically sign the user in to separate-domain sites of the same multisite installation, when switching sites using the My Sites links in the admin menu. Note that the user already has to be logged into a site in the network, this plugin just cuts down on having to log in again due to cookie isolation between domains. Note: This plugin must be installed on all sites in a network in order to work.
-Version: 1.2
+Version: 1.3
 Requires at least: 5.0
-Tested up to: 5.4.1
+Tested up to: 5.5.1
 Requires PHP: 7.0
 Author: emfluence Digital Marketing
 Author URI: https://emfluence.com
@@ -38,7 +38,13 @@ class Multisite_Multidomain_Single_Sign_On {
       $is_network_admin_node = (0 === stripos($id, 'network-admin'));
       if(!($is_site_node || $is_network_admin_node)) continue;
       if(in_array($current_site->domain, explode('/', $node->href), true)) continue;
-      $node->href = add_query_arg(['msso-get-auth-from' => $current_site_id], $node->href);
+      $target_url_parts = wp_parse_url($node->href);
+      $target_site = get_site_by_path($target_url_parts['host'], $target_url_parts['path']);
+      $nonce = wp_create_nonce('multisite-sso-' . $current_site_id . '-' . $target_site->blog_id);
+      $node->href = add_query_arg([
+        'msso-get-auth-from' => $current_site_id,
+        'nonce' => $nonce
+      ], $node->href);
       $wp_admin_bar->add_node($node);
     }
   }
@@ -47,18 +53,26 @@ class Multisite_Multidomain_Single_Sign_On {
    * Initiate the workflow, on a target site that the user wants to log into.
    */
   function receive_sso_request() {
-    if(empty($_GET['msso-get-auth-from'])) return;
+    if(empty($_GET['msso-get-auth-from'])) return; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
     if(is_user_logged_in()) {
-      wp_redirect(remove_query_arg('msso-get-auth-from'));
+      wp_redirect(remove_query_arg(['msso-get-auth-from', 'nonce']));
       exit();
     }
-    $coming_from = intval($_GET['msso-get-auth-from']);
+    $coming_from = intval($_GET['msso-get-auth-from']); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
     $sso_site = get_site($coming_from);
     if(empty($sso_site)) {
       wp_die('Single Sign On is attempting to use an invalid site on this multisite.');
     }
-    $return_url = get_site_url() . remove_query_arg('msso-get-auth-from');
-    $next_url = add_query_arg(['msso-auth-return-to' => $return_url], get_site_url($coming_from));
+
+    if(empty($_GET['nonce'])) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized,WordPress.Security.NonceVerification.Recommended
+      wp_die('Single Sign On was attempted with a missing nonce.');
+    }
+
+    $return_url = get_site_url() . remove_query_arg(['msso-get-auth-from', 'nonce']);
+    $next_url = add_query_arg([
+      'msso-auth-return-to' => $return_url,
+      'nonce' => sanitize_text_field($_GET['nonce']) // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+    ], get_site_url($coming_from));
     wp_redirect($next_url);
     exit();
   }
@@ -77,7 +91,11 @@ class Multisite_Multidomain_Single_Sign_On {
     $url_parts = explode('/', $return_url);
     $requesting_site_id = get_blog_id_from_url($url_parts[2]);
     if(empty($requesting_site_id)) {
-      wp_die('Single Sign On failed. The requested site could not be found on this network. If someone gave you think link, they may have sent you a phishing attack.');
+      wp_die('Single Sign On failed. The requested site could not be found on this network. If someone gave you this link, they may have sent you a phishing attack.');
+    }
+
+    if(empty($_GET['nonce']) || !wp_verify_nonce($_GET['nonce'], 'multisite-sso-' . get_current_blog_id() . '-' . $requesting_site_id)) {  // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+      wp_die('Single Sign On was attempted with a missing or bad nonce.');
     }
 
     $current_user = wp_get_current_user();
@@ -110,9 +128,9 @@ class Multisite_Multidomain_Single_Sign_On {
    * Final step, used on the target site.
    */
   function receive_auth() {
-    $keys = ['msso-auth', 'msso-user-id', 'msso-expires'];
+    $keys = ['msso-auth', 'msso-user-id', 'msso-expires']; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
     foreach($keys as $key) {
-      if(empty($_GET[$key])) return;
+      if(empty($_GET[$key])) return; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
     }
     $final_destination = remove_query_arg($keys);
     if(is_user_logged_in()) {
@@ -120,9 +138,9 @@ class Multisite_Multidomain_Single_Sign_On {
       exit();
     }
 
-    $user_id = intval($_GET['msso-user-id']); // phpcs:ignore:WordPress.Security.ValidatedSanitizedInput.InputNotValidated
-    $expires = intval($_GET['msso-expires']); // phpcs:ignore:WordPress.Security.ValidatedSanitizedInput.InputNotValidated
-    $received_hash = $_GET['msso-auth']; // phpcs:ignore:WordPress.Security.ValidatedSanitizedInput.InputNotValidated
+    $user_id = intval($_GET['msso-user-id']); // phpcs:ignore:WordPress.Security.ValidatedSanitizedInput.InputNotValidated, WordPress.Security.NonceVerification.Recommended
+    $expires = intval($_GET['msso-expires']); // phpcs:ignore:WordPress.Security.ValidatedSanitizedInput.InputNotValidated, WordPress.Security.NonceVerification.Recommended
+    $received_hash = sanitize_text_field($_GET['msso-auth']); // phpcs:ignore:WordPress.Security.ValidatedSanitizedInput.InputNotValidated, WordPress.Security.NonceVerification.Recommended
 
     if($expires < time()) {
       wp_die('Your Single Sign On link has expired. Please return to the dashboard and try again.');
@@ -152,7 +170,10 @@ class Multisite_Multidomain_Single_Sign_On {
    */
   protected function get_user_password_hash($uid) {
     global $wpdb;
-    return $wpdb->get_var($wpdb->prepare("SELECT user_pass FROM {$wpdb->users} WHERE ID = %d", $uid)); // phpcs:ignore WordPressVIPMinimum.Variables.RestrictedVariables.user_meta__wpdb__users
+    $hash = $wpdb->get_var($wpdb->prepare("SELECT user_pass FROM {$wpdb->users} WHERE ID = %d", $uid)); // phpcs:ignore WordPressVIPMinimum.Variables.RestrictedVariables.user_meta__wpdb__users
+    return empty($hash) ?
+        $hash :
+        substr($hash, 0, -2); // It's a bit safer to use only part of the password hash
   }
 
   /**
@@ -161,11 +182,9 @@ class Multisite_Multidomain_Single_Sign_On {
    * @return false|string
    */
   protected function hash($thing) {
-    $algo = function_exists( 'hash' )
-        ? 'sha256'
-        : 'sha1';
+    if(!function_exists( 'hash' )) return false;
     if(!defined( 'AUTH_SALT' ) || empty(AUTH_SALT)) return false;
-    return hash_hmac( $algo, $thing, AUTH_SALT);
+    return hash_hmac( 'sha256', $thing, AUTH_SALT);
   }
 
 }
