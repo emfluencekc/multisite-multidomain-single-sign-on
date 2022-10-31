@@ -3,7 +3,7 @@ Contributors: emfluencekc, mightyturtle
 Author URI: https://emfluence.com
 Tags: multisite, domain, single sign on
 Requires at least: 5.0
-Tested up to: 5.5.1
+Tested up to: 6.1
 Requires PHP: 7.0
 Stable tag: 1.3
 License: GPLv2 or later
