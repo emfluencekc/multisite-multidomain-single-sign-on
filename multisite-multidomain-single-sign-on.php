@@ -89,7 +89,8 @@ class Multisite_Multidomain_Single_Sign_On {
 
     // Prevent phishing attacks, make sure that the return-to site that gets the auth is a domain on this network.
     $url_parts = explode('/', $return_url);
-    $path = $url_parts[3] ? '/' . $url_parts[3] . '/': '/';
+    $url_parts[3] = $url_parts[3] ? str_replace( 'wp-admin', '', $url_parts[3] ) : null;
+    $path = ! empty( $url_parts[3] ) ? '/' . $url_parts[3] . '/': '/';
     $requesting_site_id = get_blog_id_from_url($url_parts[2], $path);
     if(empty($requesting_site_id)) {
       wp_die('Single Sign On failed. The requested site could not be found on this network. If someone gave you this link, they may have sent you a phishing attack.');
